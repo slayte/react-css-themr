@@ -1,6 +1,7 @@
 import expect from 'expect'
-import React, { Children, PropTypes, Component } from 'react'
-import TestUtils from 'react-addons-test-utils'
+import React, { Children, Component } from 'react'
+import PropTypes from 'prop-types'
+import TestUtils from 'react-dom/test-utils'
 import sinon from 'sinon'
 import { render } from 'react-dom'
 import shallowEqual from 'fbjs/lib/shallowEqual'
@@ -10,7 +11,7 @@ describe('Themr decorator function', () => {
   class Passthrough extends Component {
     render() {
       const { theme, ...props } = this.props //eslint-disable-line no-unused-vars
-      return <div {...props} />
+      return <div ref={(node) => { this.rootNode = node }} {...props} />
     }
   }
 
@@ -278,55 +279,62 @@ describe('Themr decorator function', () => {
     expect(stub.props.theme).toEqual({})
   })
 
-  it('should throw when trying to access the wrapped instance if withRef is not specified', () => {
-    const theme = { Container: { foo: 'foo_1234' } }
-
-    @themr('Container')
+  it('gets the reference to a decorated component using innerRef prop', () => {
     class Container extends Component {
       render() {
         return <Passthrough {...this.props} />
       }
     }
 
-    const tree = TestUtils.renderIntoDocument(
-      <ProviderMock theme={theme}>
-        <Container />
-      </ProviderMock>
-    )
-
-    const container = TestUtils.findRenderedComponentWithType(tree, Container)
-    expect(() => container.getWrappedInstance()).toThrow(
-      /To access the wrapped instance, you need to specify \{ withRef: true \} as the third argument of the themr\(\) call\./
-    )
+    const spy = sinon.stub()
+    const ThemedContainer = themr('Container')(Container)
+    const tree = TestUtils.renderIntoDocument(<ThemedContainer innerRef={spy} />)
+    const stub = TestUtils.findRenderedComponentWithType(tree, Container)
+    expect(spy.withArgs(stub).calledOnce).toBe(true)
   })
 
-  it('should return the instance of the wrapped component for use in calling child methods', () => {
-    const someData = {
-      some: 'data'
-    }
-
+  it('allows to customize props passing using mapThemrProps from props', () => {
     class Container extends Component {
-      someInstanceMethod() {
-        return someData
-      }
-
       render() {
-        return <Passthrough />
+        return <Passthrough {...this.props} />
       }
     }
 
-    const decorator = themr('Component', null, { withRef: true })
-    const Decorated = decorator(Container)
+    const spy = sinon.stub()
+    const hoc = C => ({ withRef, ...rest }) => (<C ref={withRef} {...rest} />)
+    const customMapper = (props, theme) => {
+      const { composeTheme, innerRef, mapThemrProps, themeNamespace, ...rest } = props //eslint-disable-line no-unused-vars
+      return { withRef: innerRef, theme, className: 'fooClass', ...rest }
+    }
+    const theme = {}
+    const DecoratedContainer = hoc(Container)
+    const ThemedDecoratedContainer = themr('Container', theme)(DecoratedContainer)
+    const tree = TestUtils.renderIntoDocument(<ThemedDecoratedContainer innerRef={spy} mapThemrProps={customMapper} />)
+    const stub = TestUtils.findRenderedComponentWithType(tree, Container)
+    expect(spy.withArgs(stub).calledOnce).toBe(true)
+    expect(stub.props).toMatch({ theme, className: 'fooClass' })
+  })
 
-    const tree = TestUtils.renderIntoDocument(
-      <Decorated />
-    )
+  it('allows to customize props passing using mapThemrProps from options', () => {
+    class Container extends Component {
+      render() {
+        return <Passthrough {...this.props} />
+      }
+    }
 
-    const decorated = TestUtils.findRenderedComponentWithType(tree, Decorated)
-
-    expect(() => decorated.someInstanceMethod()).toThrow()
-    expect(decorated.getWrappedInstance().someInstanceMethod()).toBe(someData)
-    expect(decorated.refs.wrappedInstance.someInstanceMethod()).toBe(someData)
+    const spy = sinon.stub()
+    const hoc = C => ({ withRef, ...rest }) => (<C ref={withRef} {...rest} />)
+    const customMapper = (props, theme) => {
+      const { composeTheme, innerRef, mapThemrProps, themeNamespace, ...rest } = props //eslint-disable-line no-unused-vars
+      return { withRef: innerRef, theme, className: 'fooClass', ...rest }
+    }
+    const theme = {}
+    const DecoratedContainer = hoc(Container)
+    const ThemedDecoratedContainer = themr('Container', {}, { mapThemrProps: customMapper })(DecoratedContainer)
+    const tree = TestUtils.renderIntoDocument(<ThemedDecoratedContainer innerRef={spy} />)
+    const stub = TestUtils.findRenderedComponentWithType(tree, Container)
+    expect(spy.withArgs(stub).calledOnce).toBe(true)
+    expect(stub.props).toMatch({ theme, className: 'fooClass' })
   })
 
   it('should throw if themeNamespace passed without theme', () => {
@@ -384,6 +392,17 @@ describe('Themr decorator function', () => {
     }
     expect(Foo.propTypes.foo).toBe(propTypes.foo)
     expect(Foo.defaultProps.foo).toBe(defaultProps.foo)
+  })
+
+  it('should copy non-react statics from ThemedComponent', () => {
+    const meta = { name: 'Foo' }
+
+    @themr('Foo')
+    class Foo extends Component {
+      static meta = meta;
+    }
+
+    expect(Foo.meta.name).toBe(meta.name)
   })
 
   it('should not wrap multiple time if used with already wrapped component with the same key', () => {
@@ -510,7 +529,6 @@ describe('Themr decorator function', () => {
     )
 
     const stub = TestUtils.findRenderedComponentWithType(tree, Passthrough)
-    // expect(stub.props.theme).toEqual(containerTheme)
     expect(stub.props.themeNamespace).toNotExist()
     expect(stub.props.composeTheme).toNotExist()
     expect(stub.props.theme).toExist()
@@ -548,11 +566,113 @@ describe('themeable function', () => {
     expect(result).toEqual(expected)
   })
 
-  it('should skip dupplicated keys classNames', () => {
+  it('should skip duplicated keys classNames', () => {
     const themeA = { test: 'test' }
     const themeB = { test: 'test test2' }
     const expected = { test: 'test test2' }
     const result = themeable(themeA, themeB)
+    expect(result).toEqual(expected)
+  })
+
+  it('should take mixin value if original does not contain one', () => {
+    const themeA = {}
+    const themeB = {
+      test: 'test',
+      nested: {
+        bar: 'bar'
+      }
+    }
+    const expected = themeB
+    const result = themeable(themeA, themeB)
+    expect(result).toEqual(expected)
+  })
+
+  it('should take original value if mixin does not contain one', () => {
+    const themeA = {
+      test: 'test',
+      nested: {
+        bar: 'bar'
+      }
+    }
+    const themeB = {}
+    const expected = themeA
+    const result = themeable(themeA, themeB)
+    expect(result).toEqual(expected)
+  })
+
+  it('should skip function values for usage with isomorphic-style-loader', () => {
+    const themeA = {
+      test: 'test',
+      foo() {
+      }
+    }
+
+    const themeB = {
+      test: 'test2',
+      bar() {
+      }
+    }
+
+    const expected = {
+      test: [
+        themeA.test, themeB.test
+      ].join(' ')
+    }
+
+    const result = themeable(themeA, themeB)
+    expect(result).toEqual(expected)
+  })
+
+  it('should throw when merging objects with non-objects', () => {
+    const themeA = {
+      test: 'test'
+    }
+    const themeB = {
+      test: {
+      }
+    }
+    expect(() => themeable(themeA, themeB)).toThrow()
+  })
+
+  it('should throw when merging non-objects with objects', () => {
+    const themeA = {
+      test: {
+      }
+    }
+    const themeB = {
+      test: 'test'
+    }
+    expect(() => themeable(themeA, themeB)).toThrow()
+  })
+
+  it('should support theme spreads', () => {
+    const a = {
+      test: 'a'
+    }
+    const b = {
+      test: 'b'
+    }
+    const c = {
+      test: 'foo',
+      foo: 'foo'
+    }
+    const expected = {
+      test: 'a b foo',
+      foo: 'foo'
+    }
+    const result = themeable(a, b, c)
+    expect(result).toEqual(expected)
+  })
+
+  it('should skip undefined mixin values', () => {
+    const a = {
+      test: 'a'
+    }
+    const b = {
+      test: undefined
+    }
+    const expected = a
+    const result = themeable(a, b)
     expect(result).toEqual(expected)
   })
 })
