@@ -2,7 +2,7 @@
   "name": "react-css-themr",
   "description": "React CSS Themr",
   "homepage": "https://github.com/javivelasco/react-css-themr#readme",
-  "version": "2.1.2",
+  "version": "2.2.0",
   "main": "./lib",
   "author": {
     "email": "javier.velasco86@gmail.com",
@@ -25,7 +25,9 @@
   ],
   "dependencies": {
     "hoist-non-react-statics": "^1.2.0",
-    "invariant": "^2.2.1"
+    "invariant": "^2.2.1",
+    "rimraf": "^2.6.1",
+    "prop-types": "^15.6.2"
   },
   "devDependencies": {
     "@types/react": "^15.0.24",
@@ -45,9 +47,8 @@
     "jsdom": "^9.8.3",
     "mocha": "^3.3.0",
     "prop-types": "^15.5.9",
-    "react": "^15.5.4",
-    "react-dom": "^15.5.4",
-    "rimraf": "^2.6.1",
+    "react": "^16.4.1",
+    "react-dom": "^16.4.1",
     "sinon": "^1.17.6"
   },
   "files": [
@@ -56,15 +57,16 @@
     "src"
   ],
   "scripts": {
-    "build": "babel src --out-dir lib",
+    "build": "./node_modules/.bin/babel src --out-dir lib",
     "lint": "eslint src test",
     "prepublish": "rimraf lib && npm run build",
+    "postinstall": "./node_modules/.bin/rimraf lib && npm run build",
     "test": "mocha --compilers js:babel-core/register --recursive --reporter spec --require ./test/setup.js",
     "test:watch": "npm test -- --watch"
   },
   "license": "MIT",
   "peerDependencies": {
-    "react": "^0.14.0 || ^15.0.0-0"
+    "react": "^0.14.0 || ^15.0.0-0 || ^16.0.0"
   },
   "typings": "./index.d.ts"
 }
